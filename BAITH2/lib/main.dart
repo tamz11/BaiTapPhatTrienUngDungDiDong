@@ -434,15 +434,18 @@ class NoteDetailScreen extends StatefulWidget {
   State<NoteDetailScreen> createState() => _NoteDetailScreenState();
 }
 
-class _NoteDetailScreenState extends State<NoteDetailScreen> {
+class _NoteDetailScreenState extends State<NoteDetailScreen>
+    with WidgetsBindingObserver {
   late final TextEditingController _titleController;
   late final TextEditingController _contentController;
 
   bool _saved = false;
+  bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _titleController =
         TextEditingController(text: widget.initialNote?.title ?? '');
     _contentController =
@@ -451,56 +454,81 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _titleController.dispose();
     _contentController.dispose();
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _saveIfNeeded();
+    }
+  }
+
   Future<void> _saveIfNeeded() async {
-    if (_saved) {
+    if (_saved || _isSaving) {
       return;
     }
 
-    _saved = true;
+    _isSaving = true;
     final String title = _titleController.text.trim();
     final String content = _contentController.text.trim();
 
     if (widget.initialNote == null && title.isEmpty && content.isEmpty) {
+      _saved = true;
+      _isSaving = false;
       return;
     }
 
-    final List<Note> notes = await NoteStorage.loadNotes();
-    final DateTime now = DateTime.now();
+    try {
+      final List<Note> notes = await NoteStorage.loadNotes();
+      final DateTime now = DateTime.now();
 
-    if (widget.initialNote == null) {
-      notes.insert(
-        0,
-        Note(
-          id: now.microsecondsSinceEpoch.toString(),
+      if (widget.initialNote == null) {
+        notes.insert(
+          0,
+          Note(
+            id: now.microsecondsSinceEpoch.toString(),
+            title: title,
+            content: content,
+            updatedAt: now,
+          ),
+        );
+      } else {
+        final int index = notes.indexWhere(
+          (Note item) => item.id == widget.initialNote!.id,
+        );
+
+        final Note updated = widget.initialNote!.copyWith(
           title: title,
           content: content,
           updatedAt: now,
-        ),
-      );
-    } else {
-      final int index = notes.indexWhere(
-        (Note item) => item.id == widget.initialNote!.id,
-      );
+        );
 
-      final Note updated = widget.initialNote!.copyWith(
-        title: title,
-        content: content,
-        updatedAt: now,
-      );
-
-      if (index == -1) {
-        notes.insert(0, updated);
-      } else {
-        notes[index] = updated;
+        if (index == -1) {
+          notes.insert(0, updated);
+        } else {
+          notes[index] = updated;
+        }
       }
-    }
 
-    await NoteStorage.saveNotes(notes);
+      await NoteStorage.saveNotes(notes);
+      _saved = true;
+    } finally {
+      _isSaving = false;
+    }
+  }
+
+  Future<void> _saveAndExit() async {
+    final NavigatorState navigator = Navigator.of(context);
+    await _saveIfNeeded();
+    if (navigator.mounted) {
+      navigator.pop();
+    }
   }
 
   @override
@@ -514,14 +542,15 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
         if (didPop) {
           return;
         }
-        final NavigatorState navigator = Navigator.of(context);
-        await _saveIfNeeded();
-        if (navigator.mounted) {
-          navigator.pop();
-        }
+        await _saveAndExit();
       },
       child: Scaffold(
-        appBar: AppBar(),
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: _saveAndExit,
+          ),
+        ),
         body: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
           child: Card(

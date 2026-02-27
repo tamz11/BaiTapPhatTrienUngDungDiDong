@@ -16,7 +16,7 @@ void main() {
     await tester.pumpWidget(const SmartNoteApp());
 
     expect(
-      find.text('Smart Note - [Họ tên Sinh viên] - [Mã SV]'),
+      find.text('Smart Note - Phan Văn Tâm - 2351160549'),
       findsOneWidget,
     );
   });
